@@ -18,6 +18,30 @@ import plfg._
 import nco._
 
 
+object decoupled_queue {
+  def apply[T <: Data](size: Int, in: DecoupledIO[_ <: Data], out: DecoupledIO[T], en: Bool = true.B): T = {
+    requireIsHardware(in)
+    requireIsHardware(out)
+
+
+    val queue = Module(new Queue(chiselTypeOf(out.bits), size))
+    val queueCounter = RegInit(0.U(log2Ceil(size).W))
+    queueCounter := queueCounter +& in.fire() -& out.fire()
+
+    queue.io.enq.valid := in.fire()
+    assert(!queue.io.enq.valid || queue.io.enq.ready) // we control in.ready such that the queue can't fill up!
+
+    // it can shift in one datum and shift out one datum at the same time
+    in.ready := (queueCounter < size.U)
+    queue.io.deq.ready := out.ready
+    out.valid := queue.io.deq.valid
+    out.bits := queue.io.deq.bits
+
+    TransitName(queue.io.enq.bits, out)
+  }
+}
+
+
 class AXIBridge1to1Multiplying(csrAddress: AddressSet,beatBytes: Int) extends LazyModule()(Parameters.empty) {
 
   val streamNode = AXI4StreamMasterNode(Seq(AXI4StreamMasterPortParameters(Seq(AXI4StreamMasterParameters("out", n = beatBytes)))))
