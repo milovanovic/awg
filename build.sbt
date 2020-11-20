@@ -45,7 +45,7 @@ val commonSettings = Seq(
   )
 )
 
-lazy val plfg = (project in file("generators/plfg"))
+lazy val plfg = (project in file("generators/plwg"))
   .settings(commonSettings: _*)
 
 lazy val nco = (project in file("generators/nco"))
