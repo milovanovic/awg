@@ -1,0 +1,12 @@
+[submodule "generators/sdf-fft"]
+	path = generators/sdf-fft
+	url = https://github.com/milovanovic/sdf-fft
+	branch = dev
+[submodule "generators/nco"]
+	path = generators/nco
+	url = https://github.com/milovanovic/nco
+	branch = dev
+[submodule "generators/plwg"]
+	path = generators/plwg
+	url = https://github.com/milovanovic/plwg
+	branch = dev
