@@ -1,4 +1,4 @@
-package awg
+package nco
 
 import chisel3._
 import chisel3.util._
@@ -20,7 +20,6 @@ import chisel3.iotesters.PeekPokeTester
 import org.scalatest.{FlatSpec, Matchers}
 import fft._
 import plfg._
-import nco._
 
 
 class singleNCOwithMultiplyingChainTester(   
@@ -28,7 +27,6 @@ class singleNCOwithMultiplyingChainTester(
   csrAddressPLFG: AddressSet,
   ramAddress: AddressSet,
   csrAddressNCO: AddressSet,
-  csrAddressFFT: AddressSet,
   csrAddress: AddressSet,
   beatBytes: Int
 )  extends PeekPokeTester(dut.module) with AXI4MasterModel {
@@ -43,7 +41,7 @@ class singleNCOwithMultiplyingChainTester(
   val returnVal1 = new Array[Int](1024)
   val real = new Array[Double](1024)
   val imag = new Array[Double](1024)
-  val absVals = new Array[Double](1024)
+  //val absVals = new Array[Double](1024)
   
   memWriteWord(ramAddress.base, 0x24000000)
   step(1)
@@ -59,11 +57,7 @@ class singleNCOwithMultiplyingChainTester(
   step(1)
   memWriteWord(csrAddressPLFG.base + chirpOrdinalNumsArrayOffset, 0)
   step(1)
-  
-  memWriteWord(csrAddressFFT.base, 1024)
-  step(1)
-  memWriteWord(csrAddressFFT.base + beatBytes, 1)
-  step(1)
+
   
   memWriteWord(csrAddress.base, 0x0400) //0x1000
   step(1)
@@ -84,7 +78,7 @@ class singleNCOwithMultiplyingChainTester(
       returnVal1(idx) = returnVal(idx).toInt
       real(idx) = ((returnVal1(idx) / pow(2,16)).toShort).toDouble
       imag(idx) = ((returnVal1(idx) - (real(idx).toInt * pow(2,16))).toShort).toDouble
-      absVals(idx) = sqrt(pow(real(idx), 2) + pow(imag(idx), 2)).toDouble
+      //absVals(idx) = sqrt(pow(real(idx), 2) + pow(imag(idx), 2)).toDouble
       idx += 1
     }
     step(1)
@@ -94,15 +88,39 @@ class singleNCOwithMultiplyingChainTester(
   val f1 = Figure("Single NCO with Multiplying Chain Output")
   val p1 = f1.subplot(1,1,0)
   p1.legend_= (true)
-  val xaxis1 = (0 until absVals.length).map(e => e.toDouble).toSeq.toArray
+  val xaxis1 = (0 until real.length).map(e => e.toDouble).toSeq.toArray
   p1.setXAxisIntegerTickUnits()
-  p1 += plot(xaxis1, absVals.toArray, name = "FFT Absolute value")
-  p1.ylim(absVals.min, absVals.max)
+  p1 += plot(xaxis1, real.toArray, name = "Real value")
+  p1 += plot(xaxis1, imag.toArray, name = "Imag value")
+  p1.ylim(real.min, real.max)
   //p1.ylim(returnVal1.min, returnVal1.max)
-  p1.xlabel = "Frequency"
-  p1.ylabel = "FFT values"
+  p1.xlabel = "Time"
+  p1.ylabel = "Output values"
   f1.saveas(s"test_run_dir/single_nco_multiplying_chain.pdf")
 
+}
+
+object decoupled_queue {
+  def apply[T <: Data](size: Int, in: DecoupledIO[_ <: Data], out: DecoupledIO[T], en: Bool = true.B): T = {
+    requireIsHardware(in)
+    requireIsHardware(out)
+
+
+    val queue = Module(new Queue(chiselTypeOf(out.bits), size))
+    val queueCounter = RegInit(0.U(log2Ceil(size).W))
+    queueCounter := queueCounter +& in.fire() -& out.fire()
+
+    queue.io.enq.valid := in.fire()
+    assert(!queue.io.enq.valid || queue.io.enq.ready) // we control in.ready such that the queue can't fill up!
+
+    // it can shift in one datum and shift out one datum at the same time
+    in.ready := (queueCounter < size.U)
+    queue.io.deq.ready := out.ready
+    out.valid := queue.io.deq.valid
+    out.bits := queue.io.deq.bits
+
+    TransitName(queue.io.enq.bits, out)
+  }
 }
 
 
@@ -136,27 +154,12 @@ class singleNCOwithMultiplyingChainSpec extends FlatSpec with Matchers {
     outputWidthFrac = 0
   )
     
-  val paramsFFT = FFTParams.fixed(
-    dataWidth = 16,
-    twiddleWidth = 16,
-    binPoint = 14,
-    numPoints = 1024,
-    numMulPipes = 1,
-    numAddPipes = 1,
-    decimType = DIFDecimType,
-    useBitReverse = true,
-    expandLogic = Array.fill(log2Up(1024))(0),
-    keepMSBorLSB = Array.fill(log2Up(1024))(true),
-    sdfRadix = "2^2"
-  )
-
-
     
   it should "Test single NCO with Multiplying Chain" in {
-    val lazyDut = LazyModule(new singleNCOwithMultiplyingChain(paramsPLFG, paramsNCO, paramsFFT, AddressSet(0x001000, 0xFF), AddressSet(0x000000, 0x0FFF), AddressSet(0x001100, 0xFF), AddressSet(0x001200, 0xFF), AddressSet(0x001300, 0xFF), beatBytes) {
+    val lazyDut = LazyModule(new singleNCOwithMultiplyingChain(paramsPLFG, paramsNCO, AddressSet(0x001000, 0xFF), AddressSet(0x000000, 0x0FFF), AddressSet(0x001100, 0xFF), AddressSet(0x001200, 0xFF), beatBytes) {
     })
     chisel3.iotesters.Driver.execute(Array("-tiwv", "-tbn", "verilator", "-tivsuv"), () => lazyDut.module) {
-      c => new singleNCOwithMultiplyingChainTester(lazyDut, AddressSet(0x001000, 0xFF), AddressSet(0x000000, 0x0FFF), AddressSet(0x001100, 0xFF), AddressSet(0x001200, 0xFF), AddressSet(0x001300, 0xFF), beatBytes)
+      c => new singleNCOwithMultiplyingChainTester(lazyDut, AddressSet(0x001000, 0xFF), AddressSet(0x000000, 0x0FFF), AddressSet(0x001100, 0xFF), AddressSet(0x001200, 0xFF), beatBytes)
     } should be (true)
   }
 

@@ -1,4 +1,4 @@
-package awg
+package nco
 
 import chisel3._
 import chisel3.experimental._
@@ -15,34 +15,9 @@ import freechips.rocketchip.regmapper._
 import freechips.rocketchip.tilelink._
 import fft._
 import plfg._
-import nco._
 
 
-object decoupled_queue {
-  def apply[T <: Data](size: Int, in: DecoupledIO[_ <: Data], out: DecoupledIO[T], en: Bool = true.B): T = {
-    requireIsHardware(in)
-    requireIsHardware(out)
-
-
-    val queue = Module(new Queue(chiselTypeOf(out.bits), size))
-    val queueCounter = RegInit(0.U(log2Ceil(size).W))
-    queueCounter := queueCounter +& in.fire() -& out.fire()
-
-    queue.io.enq.valid := in.fire()
-    assert(!queue.io.enq.valid || queue.io.enq.ready) // we control in.ready such that the queue can't fill up!
-
-    // it can shift in one datum and shift out one datum at the same time
-    in.ready := (queueCounter < size.U)
-    queue.io.deq.ready := out.ready
-    out.valid := queue.io.deq.valid
-    out.bits := queue.io.deq.bits
-
-    TransitName(queue.io.enq.bits, out)
-  }
-}
-
-
-class AXIBridge1to1Multiplying(csrAddress: AddressSet,beatBytes: Int) extends LazyModule()(Parameters.empty) {
+class AXIBridge1to1Multiplying(dataWidth: Int, csrAddress: AddressSet, beatBytes: Int) extends LazyModule()(Parameters.empty) {
 
   val streamNode = AXI4StreamMasterNode(Seq(AXI4StreamMasterPortParameters(Seq(AXI4StreamMasterParameters("out", n = beatBytes)))))
 
@@ -54,10 +29,12 @@ class AXIBridge1to1Multiplying(csrAddress: AddressSet,beatBytes: Int) extends La
     val ioout = streamNode.out(0)._1
     val ioin1 = slaveNode1.in(0)._1
 
-    val multiplyingFactor1 = RegInit(UInt(14.W), 0.U)
+    //val multiplyingFactor1 = RegInit(UInt(14.W), 0.U)
+    val multiplyingFactor1 = RegInit(UInt(dataWidth.W), 0.U)
 
     val fields = Seq(
-      RegField(14, multiplyingFactor1,
+      //RegField(14, multiplyingFactor1,
+      RegField(dataWidth, multiplyingFactor1,
         RegFieldDesc(name = "multiplyingFactor1", desc = "multiplying factor for first nco output")),
     )
 
@@ -82,8 +59,10 @@ class AXIBridge1to1Multiplying(csrAddress: AddressSet,beatBytes: Int) extends La
     when (interfaceOut1.fire()) {
 
       DspContext.withBinaryPointGrowth(0) {
-        val nco_imag1 = (multiplyingFactor1.asTypeOf(FixedPoint(16.W, 12.BP)) context_* interfaceOut1.bits(13, 0).asTypeOf(FixedPoint(14.W, 12.BP))).asSInt
-        val nco_real1 = (multiplyingFactor1.asTypeOf(FixedPoint(16.W, 12.BP)) context_* interfaceOut1.bits(27, 14).asTypeOf(FixedPoint(14.W, 12.BP))).asSInt
+        //val nco_imag1 = (multiplyingFactor1.asTypeOf(FixedPoint(16.W, 12.BP)) context_* interfaceOut1.bits(13, 0).asTypeOf(FixedPoint(14.W, 12.BP))).asSInt
+        //val nco_real1 = (multiplyingFactor1.asTypeOf(FixedPoint(16.W, 12.BP)) context_* interfaceOut1.bits(27, 14).asTypeOf(FixedPoint(14.W, 12.BP))).asSInt
+        val nco_imag1 = (multiplyingFactor1.asTypeOf(FixedPoint(16.W, (dataWidth-2).BP)) context_* interfaceOut1.bits((dataWidth-1), 0).asTypeOf(FixedPoint(dataWidth.W, (dataWidth-2).BP))).asSInt
+        val nco_real1 = (multiplyingFactor1.asTypeOf(FixedPoint(16.W, (dataWidth-2).BP)) context_* interfaceOut1.bits((2*dataWidth-1), dataWidth).asTypeOf(FixedPoint(dataWidth.W, (dataWidth-2).BP))).asSInt
 
         ioout.bits.data := Cat(nco_real1.asTypeOf(UInt(16.W)), nco_imag1.asTypeOf(UInt(16.W)))
       }
@@ -91,14 +70,16 @@ class AXIBridge1to1Multiplying(csrAddress: AddressSet,beatBytes: Int) extends La
 
 
     decoupled_queue(1024, interfaceIn1, interfaceOut1) := interfaceIn1.bits
-
+    
     val last1 = RegInit(false.B)
     when(ioin1.bits.last) {last1 := true.B}.elsewhen(RegNext(ioout.bits.last)) {last1 := false.B}
+    
+    when(last1 && ioout.valid){ioout.bits.last := true.B}.otherwise {ioout.bits.last := false.B}
 
-    val outValidCount = RegInit(UInt(12.W), 0.U)
+    /*val outValidCount = RegInit(UInt(12.W), 0.U)
     when(ioout.valid) {outValidCount := outValidCount + 1.U}
     when (outValidCount === 1023.U) {ioout.bits.last := true.B}
-    .otherwise {ioout.bits.last := false.B}
+    .otherwise {ioout.bits.last := false.B}*/
 
   }
 }
@@ -109,11 +90,9 @@ class singleNCOwithMultiplyingChain[T <: Data : Real : BinaryRepresentation]
 (
   paramsPLFG1: PLFGParams[T],
   paramsNCO1: NCOParams[T],
-  paramsFFT: FFTParams[T],
   csrAddressPLFG1: AddressSet,
   ramAddress1: AddressSet,
   csrAddressNCO: AddressSet,
-  csrAddressFFT: AddressSet,
   csrAddress: AddressSet,
   beatBytes: Int
 ) extends LazyModule()(Parameters.empty) {
@@ -124,24 +103,20 @@ class singleNCOwithMultiplyingChain[T <: Data : Real : BinaryRepresentation]
   val ncoModule1 = LazyModule(new AXI4NCOLazyModuleBlock(paramsNCO1, csrAddressNCO, beatBytes) {
   })
 
-  val fftModule = LazyModule(new AXI4FFTBlock(paramsFFT, csrAddressFFT, beatBytes))
-
-  val axi1to1 = LazyModule(new AXIBridge1to1Multiplying(csrAddress, beatBytes))
+  val axi1to1 = LazyModule(new AXIBridge1to1Multiplying(paramsNCO1.protoOut.getWidth, csrAddress, beatBytes))
 
   ncoModule1.freq.get := PLFGModule1.streamNode
   axi1to1.slaveNode1 := ncoModule1.streamNode
-  fftModule.streamNode := axi1to1.streamNode
 
 
   val ioStreamNode = BundleBridgeSink[AXI4StreamBundle]()
-  ioStreamNode := AXI4StreamToBundleBridge(AXI4StreamSlaveParameters()) := fftModule.streamNode
+  ioStreamNode := AXI4StreamToBundleBridge(AXI4StreamSlaveParameters()) := axi1to1.streamNode
   val outStream = InModuleBody { ioStreamNode.makeIO() }
 
   def standaloneParams = AXI4BundleParameters(addrBits = 32, dataBits = 32, idBits = 1)
 
   val topXbar = AXI4Xbar()
   PLFGModule1.mem.get := topXbar
-  fftModule.mem.get := topXbar
   axi1to1.mem.get := topXbar
 
   val mem = Some(AXI4IdentityNode())
@@ -192,21 +167,8 @@ object singleNCOwithMultiplyingChainApp extends App {
     outputWidthFrac = 0
   )
 
-  val paramsFFT = FFTParams.fixed(
-    dataWidth = 16,
-    twiddleWidth = 16,
-    binPoint = 14,
-    numPoints = 1024,
-    numMulPipes = 1,
-    numAddPipes = 1,
-    decimType = DIFDecimType,
-    useBitReverse = true,
-    expandLogic = Array.fill(log2Up(1024))(0),
-    keepMSBorLSB = Array.fill(log2Up(1024))(true),
-    sdfRadix = "2^2"
-  )
 
-  val chainModule = LazyModule(new singleNCOwithMultiplyingChain(paramsPLFG, paramsNCO1, paramsFFT, AddressSet(0x001000, 0xFF), AddressSet(0x000000, 0x03FF), AddressSet(0x001100, 0xFF), AddressSet(0x001200, 0xFF), AddressSet(0x001300, 0xFF), beatBytes) {
+  val chainModule = LazyModule(new singleNCOwithMultiplyingChain(paramsPLFG, paramsNCO1, AddressSet(0x001000, 0xFF), AddressSet(0x000000, 0x03FF), AddressSet(0x001100, 0xFF), AddressSet(0x001200, 0xFF), beatBytes) {
   })
 
   chisel3.Driver.execute(Array("--target-dir", "verilog", "--top-name", "multipleNCOsChainApp"), ()=> chainModule.module) // generate verilog code
