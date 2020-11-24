@@ -20,12 +20,11 @@ import freechips.rocketchip.tilelink._
 import chisel3.iotesters.Driver
 import chisel3.iotesters.PeekPokeTester
 import org.scalatest.{FlatSpec, Matchers}
-import fft._
 import plfg._
 
 
-class AWGNonParameterizedTester(   
-  dut: AWGNonParameterized[FixedPoint],
+class AWGTester(   
+  dut: AWG[FixedPoint]  with AXI4BlockIO,
   csrAddressPLFG1: AddressSet,
   ramAddress1: AddressSet,
   csrAddressPLFG2: AddressSet,
@@ -37,7 +36,6 @@ class AWGNonParameterizedTester(
   beatBytes: Int
 )  extends PeekPokeTester(dut.module) with AXI4MasterModel {
 
-    
   override def memAXI: AXI4Bundle = dut.ioMem.get.getWrappedValue
   val segmentNumsArrayOffset = 6 * beatBytes
   val repeatedChirpNumsArrayOffset = segmentNumsArrayOffset + 2 * beatBytes
@@ -62,7 +60,6 @@ class AWGNonParameterizedTester(
   step(1)
   memWriteWord(csrAddressPLFG1.base + chirpOrdinalNumsArrayOffset, 0)
   step(1)
-  
   memWriteWord(ramAddress2.base, 0x24000000)
   step(1)
   memWriteWord(csrAddressPLFG2.base + 2*beatBytes, 1) // frameNum
@@ -77,7 +74,6 @@ class AWGNonParameterizedTester(
   step(1)
   memWriteWord(csrAddressPLFG2.base + chirpOrdinalNumsArrayOffset, 0)
   step(1)
-  
   memWriteWord(ramAddress3.base, 0x14000001)
   step(1)
   memWriteWord(csrAddressPLFG3.base + 2*beatBytes, 1) // frameNum
@@ -92,7 +88,6 @@ class AWGNonParameterizedTester(
   step(1)
   memWriteWord(csrAddressPLFG3.base + chirpOrdinalNumsArrayOffset, 0)
   step(1)
-  
   
   memWriteWord(csrAddress.base, 0x0400) //0x1000
   step(1)
@@ -131,7 +126,7 @@ class AWGNonParameterizedTester(
     ii +=1
   }
   
-  val f1 = Figure("AWG Non Parameterized Output")
+  val f1 = Figure("Single AWG Output")
   val p1 = f1.subplot(1,1,0)
   p1.legend_= (true)
   val xaxis1 = (0 until real.length).map(e => e.toDouble).toSeq.toArray
@@ -142,15 +137,12 @@ class AWGNonParameterizedTester(
   //p1.ylim(returnVal1.min, returnVal1.max)
   p1.xlabel = "Samples"
   p1.ylabel = "Output values"
-  f1.saveas(s"test_run_dir/awg_non_parameterized.pdf")
-
-
+  f1.saveas(s"test_run_dir/awg.pdf")
 }
 
 
-class AWGNonParameterizedSpec extends FlatSpec with Matchers {
+class AWGSpec extends FlatSpec with Matchers {
   implicit val p: Parameters = Parameters.empty
-
   val beatBytes = 4
 
   val paramsNCO1 = FixedNCOParams( // pinc 8
@@ -192,7 +184,6 @@ class AWGNonParameterizedSpec extends FlatSpec with Matchers {
     pincType = Streaming,
     poffType = Fixed
   )
-
   val paramsPLFG = FixedPLFGParams(
     maxNumOfSegments = 2,
     maxNumOfDifferentChirps = 2,
@@ -204,13 +195,11 @@ class AWGNonParameterizedSpec extends FlatSpec with Matchers {
     outputWidthFrac = 0
   )
 
-  
-  it should "Test PLFG NCO FFT Chain" in {
-    val lazyDut = LazyModule(new AWGNonParameterized(paramsPLFG, paramsPLFG, paramsPLFG, paramsNCO1, paramsNCO2, paramsNCO3, AddressSet(0x001000, 0xFF), AddressSet(0x000000, 0x03FF), AddressSet(0x001100, 0xFF), AddressSet(0x000400, 0x03FF), AddressSet(0x001200, 0xFF), AddressSet(0x000800, 0x03FF), AddressSet(0x001300, 0xFF), AddressSet(0x001400, 0xFF), beatBytes) {
+  it should "Test AWG with three NCOs" in {
+    val lazyDut = LazyModule(new AWG(paramsPLFG, paramsPLFG, paramsPLFG, paramsNCO1, paramsNCO2, paramsNCO3, AddressSet(0x001000, 0xFF), AddressSet(0x000000, 0x03FF), AddressSet(0x001100, 0xFF), AddressSet(0x000400, 0x03FF), AddressSet(0x001200, 0xFF), AddressSet(0x000800, 0x03FF), AddressSet(0x001300, 0xFF), AddressSet(0x001400, 0xFF), beatBytes) with AXI4BlockIO {
     })
     chisel3.iotesters.Driver.execute(Array("-tiwv", "-tbn", "verilator", "-tivsuv"), () => lazyDut.module) {
-      c => new AWGNonParameterizedTester(lazyDut, AddressSet(0x001000, 0xFF), AddressSet(0x000000, 0x03FF), AddressSet(0x001100, 0xFF), AddressSet(0x000400, 0x03FF), AddressSet(0x001200, 0xFF), AddressSet(0x000800, 0x03FF), AddressSet(0x001300, 0xFF), AddressSet(0x001400, 0xFF), beatBytes)
+      c => new AWGTester(lazyDut, AddressSet(0x001000, 0xFF), AddressSet(0x000000, 0x03FF), AddressSet(0x001100, 0xFF), AddressSet(0x000400, 0x03FF), AddressSet(0x001200, 0xFF), AddressSet(0x000800, 0x03FF), AddressSet(0x001300, 0xFF), AddressSet(0x001400, 0xFF), beatBytes)
     } should be (true)
   }
-
 }

@@ -18,12 +18,11 @@ import freechips.rocketchip.tilelink._
 import chisel3.iotesters.Driver
 import chisel3.iotesters.PeekPokeTester
 import org.scalatest.{FlatSpec, Matchers}
-import fft._
 import plfg._
 
 
-class singleNCOwithMultiplyingChainTester(   
-  dut: singleNCOwithMultiplyingChain[FixedPoint],
+class SingleAWGTester(   
+  dut: SingleAWG[FixedPoint] with AXI4BlockIO,
   csrAddressPLFG: AddressSet,
   ramAddress: AddressSet,
   csrAddressNCO: AddressSet,
@@ -31,7 +30,6 @@ class singleNCOwithMultiplyingChainTester(
   beatBytes: Int
 )  extends PeekPokeTester(dut.module) with AXI4MasterModel {
 
-    
   override def memAXI: AXI4Bundle = dut.ioMem.get.getWrappedValue
   val segmentNumsArrayOffset = 6 * beatBytes
   val repeatedChirpNumsArrayOffset = segmentNumsArrayOffset + 4 * beatBytes
@@ -58,7 +56,6 @@ class singleNCOwithMultiplyingChainTester(
   memWriteWord(csrAddressPLFG.base + chirpOrdinalNumsArrayOffset, 0)
   step(1)
 
-  
   memWriteWord(csrAddress.base, 0x0400) //0x1000
   step(1)
   
@@ -96,37 +93,12 @@ class singleNCOwithMultiplyingChainTester(
   //p1.ylim(returnVal1.min, returnVal1.max)
   p1.xlabel = "Time"
   p1.ylabel = "Output values"
-  f1.saveas(s"test_run_dir/single_nco_multiplying_chain.pdf")
-
-}
-
-object decoupled_queue {
-  def apply[T <: Data](size: Int, in: DecoupledIO[_ <: Data], out: DecoupledIO[T], en: Bool = true.B): T = {
-    requireIsHardware(in)
-    requireIsHardware(out)
-
-
-    val queue = Module(new Queue(chiselTypeOf(out.bits), size))
-    val queueCounter = RegInit(0.U(log2Ceil(size).W))
-    queueCounter := queueCounter +& in.fire() -& out.fire()
-
-    queue.io.enq.valid := in.fire()
-    assert(!queue.io.enq.valid || queue.io.enq.ready) // we control in.ready such that the queue can't fill up!
-
-    // it can shift in one datum and shift out one datum at the same time
-    in.ready := (queueCounter < size.U)
-    queue.io.deq.ready := out.ready
-    out.valid := queue.io.deq.valid
-    out.bits := queue.io.deq.bits
-
-    TransitName(queue.io.enq.bits, out)
-  }
+  f1.saveas(s"test_run_dir/single_awg.pdf")
 }
 
 
-class singleNCOwithMultiplyingChainSpec extends FlatSpec with Matchers {
+class SingleAWGSpec extends FlatSpec with Matchers {
   implicit val p: Parameters = Parameters.empty
-
   val beatBytes = 4
 
   val paramsNCO = FixedNCOParams( // pinc 16
@@ -142,7 +114,6 @@ class singleNCOwithMultiplyingChainSpec extends FlatSpec with Matchers {
     pincType = Streaming,
     poffType = Fixed
   )
-
   val paramsPLFG = FixedPLFGParams(
     maxNumOfSegments = 4,
     maxNumOfDifferentChirps = 8,
@@ -154,13 +125,11 @@ class singleNCOwithMultiplyingChainSpec extends FlatSpec with Matchers {
     outputWidthFrac = 0
   )
     
-    
-  it should "Test single NCO with Multiplying Chain" in {
-    val lazyDut = LazyModule(new singleNCOwithMultiplyingChain(paramsPLFG, paramsNCO, AddressSet(0x001000, 0xFF), AddressSet(0x000000, 0x0FFF), AddressSet(0x001100, 0xFF), AddressSet(0x001200, 0xFF), beatBytes) {
+  it should "Test AWG with single NCO" in {
+    val lazyDut = LazyModule(new SingleAWG(paramsPLFG, paramsNCO, AddressSet(0x001000, 0xFF), AddressSet(0x000000, 0x0FFF), AddressSet(0x001100, 0xFF), AddressSet(0x001200, 0xFF), beatBytes) with AXI4BlockIO {
     })
     chisel3.iotesters.Driver.execute(Array("-tiwv", "-tbn", "verilator", "-tivsuv"), () => lazyDut.module) {
-      c => new singleNCOwithMultiplyingChainTester(lazyDut, AddressSet(0x001000, 0xFF), AddressSet(0x000000, 0x0FFF), AddressSet(0x001100, 0xFF), AddressSet(0x001200, 0xFF), beatBytes)
+      c => new SingleAWGTester(lazyDut, AddressSet(0x001000, 0xFF), AddressSet(0x000000, 0x0FFF), AddressSet(0x001100, 0xFF), AddressSet(0x001200, 0xFF), beatBytes)
     } should be (true)
   }
-
 }
