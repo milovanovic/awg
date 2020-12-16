@@ -1,4 +1,6 @@
-package nco
+// SPDX-License-Identifier: Apache-2.0
+
+package awg
 
 import chisel3._
 import chisel3.experimental._
@@ -15,6 +17,7 @@ import freechips.rocketchip.regmapper._
 import freechips.rocketchip.tilelink._
 import plfg._
 import fft._
+import nco._
 
 
 class AWGFFTChain[T <: Data : Real : BinaryRepresentation]

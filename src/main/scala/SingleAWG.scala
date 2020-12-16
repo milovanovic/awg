@@ -1,4 +1,6 @@
-package nco
+// SPDX-License-Identifier: Apache-2.0
+
+package awg
 
 import chisel3._
 import chisel3.experimental._
@@ -14,6 +16,7 @@ import freechips.rocketchip.diplomacy._
 import freechips.rocketchip.regmapper._
 import freechips.rocketchip.tilelink._
 import plfg._
+import nco._
 
 
 class SingleAWG[T <: Data : Real : BinaryRepresentation]
@@ -45,6 +48,7 @@ class SingleAWG[T <: Data : Real : BinaryRepresentation]
 
   val topXbar = AXI4Xbar()
   PLFGModule1.mem.get := topXbar
+  ncoModule1.mem.get := topXbar
   axi1to1.mem.get := topXbar
   val mem = Some(AXI4IdentityNode())
   topXbar := mem.get
@@ -57,29 +61,6 @@ class SingleAWG[T <: Data : Real : BinaryRepresentation]
     ioout.valid := ioin.valid
     ioin.ready := ioout.ready
   }
-}
-
-
-trait AXI4BlockIO extends DspBlock[
-  AXI4MasterPortParameters,
-  AXI4SlavePortParameters,
-  AXI4EdgeParameters,
-  AXI4EdgeParameters,
-  AXI4Bundle] {
-    def standaloneParams = AXI4BundleParameters(addrBits = 32, dataBits = 32, idBits = 1)
-    val ioMem = mem.map { 
-      m => {
-        val ioMemNode = BundleBridgeSource(() => AXI4Bundle(standaloneParams))
-        m := BundleBridgeToAXI4(AXI4MasterPortParameters(Seq(AXI4MasterParameters("bundleBridgeToAXI4")))) := ioMemNode
-        val ioMem = InModuleBody { ioMemNode.makeIO() }
-        ioMem
-      }
-    }
-    // generate out stream
-    val ioStreamNode = BundleBridgeSink[AXI4StreamBundle]()
-    ioStreamNode := 
-    AXI4StreamToBundleBridge(AXI4StreamSlaveParameters()) := streamNode
-    val outStream = InModuleBody { ioStreamNode.makeIO() }
 }
 
 

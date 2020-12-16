@@ -1,4 +1,6 @@
-package nco
+// SPDX-License-Identifier: Apache-2.0
+
+package awg
 
 import chisel3._
 import chisel3.experimental._
@@ -14,6 +16,7 @@ import freechips.rocketchip.diplomacy._
 import freechips.rocketchip.regmapper._
 import freechips.rocketchip.tilelink._
 import plfg._
+import nco._
 
 
 class AWG[T <: Data : Real : BinaryRepresentation]

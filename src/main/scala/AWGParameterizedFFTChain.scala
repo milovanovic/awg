@@ -20,20 +20,21 @@ import fft._
 import nco._
 
 
-class SingleAWGFFTChain[T <: Data : Real : BinaryRepresentation]
+class AWGParameterizedFFTChain[T <: Data : Real : BinaryRepresentation]
 (
-  paramsPLFG1: PLFGParams[T],
-  paramsNCO1: NCOParams[T],
+  paramsPLFG: PLFGParams[T],
+  paramsNCO: NCOParams[T],
   paramsFFT: FFTParams[T],
-  csrAddressPLFG1: AddressSet,
-  ramAddress1: AddressSet,
-  csrAddressNCO: AddressSet,
-  csrAddress: AddressSet,
+  csrAddressAWG: AddressSet,
+  ramAddressAWG: AddressSet,
   csrAddressFFT: AddressSet,
+  numOfAWGs: Int,
+  queueSize: Int,
   beatBytes: Int
 ) extends LazyModule()(Parameters.empty) {
 
-  val awgModule = LazyModule(new SingleAWG(paramsPLFG1, paramsNCO1, csrAddressPLFG1, ramAddress1, csrAddressNCO, csrAddress, beatBytes))
+  val awgModule = LazyModule(new AWGParameterized(paramsPLFG, paramsNCO, csrAddressAWG, ramAddressAWG, numOfAWGs, queueSize, beatBytes) {
+  })
   val fftModule = LazyModule(new AXI4FFTBlock(paramsFFT, csrAddressFFT, beatBytes))
 
   fftModule.streamNode := awgModule.streamNode
@@ -62,13 +63,14 @@ class SingleAWGFFTChain[T <: Data : Real : BinaryRepresentation]
 }
 
 
-object SingleAWGFFTChainApp extends App {
-
+object AWGParameterizedFFTChainApp extends App {
   val beatBytes = 4
+  val numOfAWGs = 2
+  val queueSize = 64
 
-  val paramsNCO1 = FixedNCOParams( // pinc 16
+  val paramsNCO = FixedNCOParams( // pinc 16
     tableSize = 256,
-    tableWidth = 14,
+    tableWidth = 16,
     phaseWidth = 10,
     rasterizedMode = false,
     nInterpolationTerms = 0,
@@ -77,7 +79,9 @@ object SingleAWGFFTChainApp extends App {
     phaseAccEnable = true,
     roundingMode = RoundHalfUp,
     pincType = Streaming,
-    poffType = Fixed
+    poffType = Fixed,
+    useMultiplier = false,
+    numMulPipes = 1
   )
   val paramsPLFG = FixedPLFGParams(
     maxNumOfSegments = 4,
@@ -103,7 +107,7 @@ object SingleAWGFFTChainApp extends App {
     sdfRadix = "2^2"
   )
 
-  val chainModule = LazyModule(new SingleAWGFFTChain(paramsPLFG, paramsNCO1, paramsFFT, AddressSet(0x001000, 0xFF), AddressSet(0x000000, 0x03FF), AddressSet(0x001100, 0xFF), AddressSet(0x001200, 0xFF), AddressSet(0x001300, 0xFF), beatBytes) {
+  val chainModule = LazyModule(new AWGParameterizedFFTChain(paramsPLFG, paramsNCO, paramsFFT, AddressSet(0x000100, 0xFF), AddressSet(0x002000, 0x03FF), AddressSet(0x000000, 0xFF), numOfAWGs, queueSize, beatBytes) {
   })
-  chisel3.Driver.execute(Array("--target-dir", "verilog", "--top-name", "SingleAWGFFTChainApp"), ()=> chainModule.module) // generate verilog code
+  chisel3.Driver.execute(Array("--target-dir", "verilog", "--top-name", "AWGParameterizedFFTChainApp"), ()=> chainModule.module) // generate verilog code
 }

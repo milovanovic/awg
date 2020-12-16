@@ -1,4 +1,6 @@
-package nco
+// SPDX-License-Identifier: Apache-2.0
+
+package awg
 
 import chisel3._
 import chisel3.util._
@@ -19,6 +21,7 @@ import chisel3.iotesters.Driver
 import chisel3.iotesters.PeekPokeTester
 import org.scalatest.{FlatSpec, Matchers}
 import plfg._
+import nco._
 
 
 class SingleAWGTester(   

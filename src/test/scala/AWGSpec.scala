@@ -1,4 +1,6 @@
-package nco
+// SPDX-License-Identifier: Apache-2.0
+
+package awg
 
 import chisel3._
 import chisel3.util._
@@ -21,6 +23,7 @@ import chisel3.iotesters.Driver
 import chisel3.iotesters.PeekPokeTester
 import org.scalatest.{FlatSpec, Matchers}
 import plfg._
+import nco._
 
 
 class AWGTester(   
@@ -125,6 +128,37 @@ class AWGTester(
     step(1)
     ii +=1
   }
+/*
+  while ((ii < 4500) && (idx < 512)) {
+    if((peek(dut.outStream.valid) > 0) && peek(dut.outStream.ready) > 0) {
+      returnVal(idx) = peek(dut.outStream.bits.data)
+      returnVal1(idx) = returnVal(idx).toInt
+      real(idx) = ((returnVal1(idx) / pow(2,16)).toShort).toDouble
+      imag(idx) = ((returnVal1(idx) - (real(idx).toInt * pow(2,16))).toShort).toDouble
+      idx += 1
+    }
+    step(1)
+    ii +=1
+  }
+  poke(dut.outStream.ready, 0)
+  step(2)
+  poke(dut.outStream.ready, 1)
+  step(1)
+  poke(dut.outStream.ready, 0)
+  step(1)
+  poke(dut.outStream.ready, 1)
+  step(1)
+  while ((ii < 4500) && (idx < 1024)) {
+    if((peek(dut.outStream.valid) > 0) && peek(dut.outStream.ready) > 0) {
+      returnVal(idx) = peek(dut.outStream.bits.data)
+      returnVal1(idx) = returnVal(idx).toInt
+      real(idx) = ((returnVal1(idx) / pow(2,16)).toShort).toDouble
+      imag(idx) = ((returnVal1(idx) - (real(idx).toInt * pow(2,16))).toShort).toDouble
+      idx += 1
+    }
+    step(1)
+    ii +=1
+  }*/
   
   val f1 = Figure("Single AWG Output")
   val p1 = f1.subplot(1,1,0)
