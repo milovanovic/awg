@@ -21,80 +21,92 @@ import nco._
 
 class AWG[T <: Data : Real : BinaryRepresentation]
 (
-  paramsPLFG1: PLFGParams[T],
-  paramsPLFG2: PLFGParams[T],
-  paramsPLFG3: PLFGParams[T],
-  paramsNCO1: NCOParams[T],
-  paramsNCO2: NCOParams[T],
-  paramsNCO3: NCOParams[T],
-  csrAddressPLFG1: AddressSet,
-  ramAddress1: AddressSet,
-  csrAddressPLFG2: AddressSet,
-  ramAddress2: AddressSet,
-  csrAddressPLFG3: AddressSet,
-  ramAddress3: AddressSet,
-  csrAddressNCO: AddressSet,
-  csrAddress: AddressSet,
+  paramsPLFG: Seq[PLFGParams[T]],
+  paramsNCO: Seq[NCOParams[T]],
+  csrAddressSetsPLFG: Seq[AddressSet],
+  csrAddressSetsNCO: Seq[AddressSet],
+  ramAddressSets: Seq[AddressSet],
+  numOfAWGs: Int,
+  queueSize: Int,
   beatBytes: Int
 ) extends LazyModule()(Parameters.empty) {
-  
-  val slaveNode = AXI4StreamSlaveNode(AXI4StreamSlaveParameters())
+  require(numOfAWGs > 0)
+  require(queueSize > 0)
+  require(paramsPLFG.length == numOfAWGs)
+  require(paramsNCO.length == numOfAWGs)
+  require(csrAddressSetsPLFG.length == numOfAWGs)
+  require(csrAddressSetsNCO.length == numOfAWGs)
+  require(ramAddressSets.length == numOfAWGs)
+
+  val slaveNodes = (0 until numOfAWGs).map(e => AXI4StreamSlaveNode(AXI4StreamSlaveParameters())).toSeq.toArray
   val streamNode = AXI4StreamMasterNode(Seq(AXI4StreamMasterPortParameters(Seq(AXI4StreamMasterParameters("out", n = beatBytes)))))
-  
-  val PLFGModule1 = LazyModule(new PLFGDspBlockMem(csrAddressPLFG1, ramAddress1, paramsPLFG1, beatBytes) {
-  })
-  val PLFGModule2 = LazyModule(new PLFGDspBlockMem(csrAddressPLFG2, ramAddress2, paramsPLFG2, beatBytes) {
-  })
-  val PLFGModule3 = LazyModule(new PLFGDspBlockMem(csrAddressPLFG3, ramAddress3, paramsPLFG3, beatBytes) {
-  })
-  val ncoModule1 = LazyModule(new AXI4NCOLazyModuleBlock(paramsNCO1, csrAddressNCO, beatBytes) {
-  })
-  val ncoModule2 = LazyModule(new AXI4NCOLazyModuleBlock(paramsNCO2, csrAddressNCO, beatBytes) {
-  })
-  val ncoModule3 = LazyModule(new AXI4NCOLazyModuleBlock(paramsNCO3, csrAddressNCO, beatBytes) {
-  })
-  val axi3to1 = LazyModule(new AXIBridge3to1(paramsNCO1.protoOut.getWidth, csrAddress, beatBytes))
-  
-  val buffer1 = AXI4StreamBuffer()
-  val buffer2 = AXI4StreamBuffer()
-  val buffer3 = AXI4StreamBuffer()
 
-  ncoModule1.freq.get := PLFGModule1.streamNode
-  ncoModule2.freq.get := PLFGModule2.streamNode
-  ncoModule3.freq.get := PLFGModule3.streamNode
-  //axi3to1.slaveNode1 := ncoModule1.streamNode
-  //axi3to1.slaveNode2 := ncoModule2.streamNode
-  //axi3to1.slaveNode3 := ncoModule3.streamNode
-  axi3to1.slaveNode1 := buffer1 := ncoModule1.streamNode
-  axi3to1.slaveNode2 := buffer2 := ncoModule2.streamNode
-  axi3to1.slaveNode3 := buffer3 := ncoModule3.streamNode
-  slaveNode := axi3to1.streamNode
-
+  val PLFGs = (0 until numOfAWGs).map(e => LazyModule(new PLFGDspBlockMem(csrAddressSetsPLFG(e), ramAddressSets(e), paramsPLFG(e), beatBytes))).toSeq.toArray
+  val NCOs = (0 until numOfAWGs).map(e => LazyModule(new AXI4NCOLazyModuleBlock(paramsNCO(e), csrAddressSetsNCO(e), beatBytes))).toSeq.toArray
+  
+  for (i <- 0 to (numOfAWGs-1)) {
+    NCOs(i).freq.get := PLFGs(i).streamNode
+    slaveNodes(i) := NCOs(i).streamNode
+  }
+  
   val topXbar = AXI4Xbar()
-  PLFGModule1.mem.get := topXbar
-  PLFGModule2.mem.get := topXbar
-  PLFGModule3.mem.get := topXbar
-  axi3to1.mem.get := topXbar
+  for (i <- 0 to (numOfAWGs-1)) {
+    PLFGs(i).mem.get := topXbar
+    if (paramsNCO(i).useMultiplier) NCOs(i).mem.get := topXbar
+  }
   val mem = Some(AXI4IdentityNode())
   topXbar := mem.get
 
   lazy val module = new LazyModuleImp(this) {
+  
     val ioout = streamNode.out(0)._1
-    val ioin = slaveNode.in(0)._1
-    ioout.bits.data := ioin.bits.data
-    ioout.bits.last := ioin.bits.last
-    ioout.valid := ioin.valid
-    ioin.ready := ioout.ready
+  
+    val queues = (0 until numOfAWGs).map(e => Module(new Queue(UInt((beatBytes * 8).W), queueSize))).toSeq.toArray
+    val queueCounters = (0 until numOfAWGs).map(e => RegInit(0.U(log2Ceil(queueSize).W))).toSeq.toArray
+    
+    val queueLasts = (0 until numOfAWGs).map(e => Module(new Queue(Bool(), queueSize))).toSeq.toArray
+    
+    val outputValids = (0 until numOfAWGs).map(e => queues(e).io.deq.valid).toSeq.toArray
+    val outputDataSin = (0 until numOfAWGs).map(e => queues(e).io.deq.bits(4*beatBytes-1, 0)).toSeq.toArray // .asSInt
+    val outputDataCos = (0 until numOfAWGs).map(e => queues(e).io.deq.bits(8*beatBytes-1, 4*beatBytes)).toSeq.toArray //.asSInt
+    val outputLasts = (0 until numOfAWGs).map(e => queueLasts(e).io.deq.bits).toSeq.toArray
+    
+    for (i <- 0 to (numOfAWGs-1)) {
+      queueCounters(i) := queueCounters(i) +& slaveNodes(i).in(0)._1.fire() -& ioout.fire()
+      slaveNodes(i).in(0)._1.ready := (queueCounters(i) < queueSize.U)
+      queues(i).io.enq.valid := slaveNodes(i).in(0)._1.fire()
+      queues(i).io.enq.bits := slaveNodes(i).in(0)._1.bits.data
+      queues(i).io.deq.ready := outputValids.foldLeft(ioout.ready)(_ && _)
+      
+      queueLasts(i).io.enq.valid := slaveNodes(i).in(0)._1.fire()
+      queueLasts(i).io.enq.bits := slaveNodes(i).in(0)._1.bits.last
+      queueLasts(i).io.deq.ready := outputValids.foldLeft(ioout.ready)(_ && _)
+    }
+
+    val outputValid = RegInit(Bool(), false.B)
+    when (ioout.ready) {outputValid := outputValids.foldLeft(ioout.ready)(_ && _)}
+    ioout.valid := outputValid
+    
+    val outputValue = RegInit(UInt((beatBytes * 8).W), false.B)
+    when (ioout.ready) {outputValue := Cat((outputDataCos.foldLeft(0.U)(_ +& _)).asTypeOf(UInt((4*beatBytes).W)), (outputDataSin.foldLeft(0.U)(_ +& _)).asTypeOf(UInt((4*beatBytes).W)))}
+    ioout.bits.data := outputValue
+    
+    val outputLast = RegInit(Bool(), false.B)
+    when (ioout.ready) {outputLast := outputLasts.foldLeft(true.B)(_ && _)}
+    ioout.bits.last := outputLast
   }
 }
 
 
 object AWGApp extends App {
+  
   val beatBytes = 4
+  val numOfAWGs = 2
+  val queueSize = 64
 
   val paramsNCO1 = FixedNCOParams( // pinc 16
     tableSize = 256,
-    tableWidth = 14,
+    tableWidth = 16,
     phaseWidth = 10,
     rasterizedMode = false,
     nInterpolationTerms = 0,
@@ -103,25 +115,14 @@ object AWGApp extends App {
     phaseAccEnable = true,
     roundingMode = RoundHalfUp,
     pincType = Streaming,
-    poffType = Fixed
+    poffType = Fixed,
+    useMultiplier = false,
+    numMulPipes = 1
   )
-  val paramsNCO2 = FixedNCOParams( // pinc 8
-    tableSize = 256,
-    tableWidth = 14,
-    phaseWidth = 10,
-    rasterizedMode = false,
-    nInterpolationTerms = 0,
-    ditherEnable = false,
-    syncROMEnable = false,
-    phaseAccEnable = true,
-    roundingMode = RoundHalfUp,
-    pincType = Streaming,
-    poffType = Fixed
-  )
-  val paramsNCO3 = FixedNCOParams( // pinc 1
-    tableSize = 256,
-    tableWidth = 14,
-    phaseWidth = 10,
+  val paramsNCO2 = FixedNCOParams( // pinc 16
+    tableSize = 64,
+    tableWidth = 16,
+    phaseWidth = 8,
     rasterizedMode = false,
     nInterpolationTerms = 0,
     ditherEnable = false,
@@ -129,9 +130,11 @@ object AWGApp extends App {
     phaseAccEnable = false,
     roundingMode = RoundHalfUp,
     pincType = Streaming,
-    poffType = Fixed
+    poffType = Fixed,
+    useMultiplier = true,
+    numMulPipes = 2
   )
-  val paramsPLFG = FixedPLFGParams(
+  val paramsPLFG1 = FixedPLFGParams(
     maxNumOfSegments = 4,
     maxNumOfDifferentChirps = 8,
     maxNumOfRepeatedChirps = 8,
@@ -141,8 +144,24 @@ object AWGApp extends App {
     outputWidthInt = 16,
     outputWidthFrac = 0
   )
+  val paramsPLFG2 = FixedPLFGParams(
+    maxNumOfSegments = 2,
+    maxNumOfDifferentChirps = 4,
+    maxNumOfRepeatedChirps = 4,
+    maxChirpOrdinalNum = 2,
+    maxNumOfFrames = 2,
+    maxNumOfSamplesWidth = 10,
+    outputWidthInt = 16,
+    outputWidthFrac = 0
+  )
+  
+  val parametersForPLFGs = Seq(paramsPLFG1, paramsPLFG2)
+  val parametersForNCOs = Seq(paramsNCO1, paramsNCO2)
+  val csrAddressSetsForPLFGs = Seq(AddressSet(0x001000, 0xFF), AddressSet(0x001100, 0xFF))
+  val csrAddressSetsForNCOs = Seq(AddressSet(0x001200, 0xFF), AddressSet(0x001300, 0xFF))
+  val ramAddressSets = Seq(AddressSet(0x000000, 0x03FF), AddressSet(0x000400, 0x03FF))
 
-  val chainModule = LazyModule(new AWG(paramsPLFG, paramsPLFG, paramsPLFG, paramsNCO1, paramsNCO2, paramsNCO3, AddressSet(0x001000, 0xFF), AddressSet(0x000000, 0x03FF), AddressSet(0x001100, 0xFF), AddressSet(0x000400, 0x03FF), AddressSet(0x001200, 0xFF), AddressSet(0x000800, 0x03FF), AddressSet(0x001300, 0xFF), AddressSet(0x001400, 0xFF), beatBytes) with AXI4BlockIO {
+  val chainModule = LazyModule(new AWG(parametersForPLFGs, parametersForNCOs, csrAddressSetsForPLFGs, csrAddressSetsForNCOs, ramAddressSets, numOfAWGs, queueSize, beatBytes) with AXI4BlockIO {
   })
   chisel3.Driver.execute(Array("--target-dir", "verilog", "--top-name", "AWGApp"), ()=> chainModule.module) // generate verilog code
 }

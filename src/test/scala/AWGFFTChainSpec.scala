@@ -29,14 +29,9 @@ import nco._
 
 class AWGFFTChainTester(   
   dut: AWGFFTChain[FixedPoint],
-  csrAddressPLFG1: AddressSet,
-  ramAddress1: AddressSet,
-  csrAddressPLFG2: AddressSet,
-  ramAddress2: AddressSet,
-  csrAddressPLFG3: AddressSet,
-  ramAddress3: AddressSet,
-  csrAddressNCO: AddressSet,
-  csrAddress: AddressSet,
+  csrAddressSetsPLFG: Seq[AddressSet],
+  csrAddressSetsNCO: Seq[AddressSet],
+  ramAddressSets: Seq[AddressSet],
   csrAddressFFT: AddressSet,
   beatBytes: Int
 )  extends PeekPokeTester(dut.module) with AXI4MasterModel {
@@ -52,73 +47,48 @@ class AWGFFTChainTester(
   val imag = new Array[Double](1024)
   val absVals = new Array[Double](1024)
   
-  memWriteWord(ramAddress1.base, 0x24000000)
-  step(1)
-  memWriteWord(csrAddressPLFG1.base + 2*beatBytes, 1) // frameNum
-  step(1)
-  memWriteWord(csrAddressPLFG1.base + 4*beatBytes, 1) // differentChirpsNum
-  step(1)
-  memWriteWord(csrAddressPLFG1.base + 5*beatBytes, 16) // startingPoint
-  step(1)
-  memWriteWord(csrAddressPLFG1.base + segmentNumsArrayOffset, 1) // segmentNums
-  step(1)
-  memWriteWord(csrAddressPLFG1.base + repeatedChirpNumsArrayOffset, 1)
-  step(1)
-  memWriteWord(csrAddressPLFG1.base + chirpOrdinalNumsArrayOffset, 0)
-  step(1)
-  memWriteWord(ramAddress2.base, 0x24000000)
-  step(1)
-  memWriteWord(csrAddressPLFG2.base + 2*beatBytes, 1) // frameNum
-  step(1)
-  memWriteWord(csrAddressPLFG2.base + 4*beatBytes, 1) // differentChirpsNum
-  step(1)
-  memWriteWord(csrAddressPLFG2.base + 5*beatBytes, 8) // startingPoint
-  step(1)
-  memWriteWord(csrAddressPLFG2.base + segmentNumsArrayOffset, 1) // segmentNums
-  step(1)
-  memWriteWord(csrAddressPLFG2.base + repeatedChirpNumsArrayOffset, 1)
-  step(1)
-  memWriteWord(csrAddressPLFG2.base + chirpOrdinalNumsArrayOffset, 0)
-  step(1)
-  memWriteWord(ramAddress3.base, 0x14000001)
-  step(1)
-  memWriteWord(csrAddressPLFG3.base + 2*beatBytes, 1) // frameNum
-  step(1)
-  memWriteWord(csrAddressPLFG3.base + 4*beatBytes, 1) // differentChirpsNum
-  step(1)
-  memWriteWord(csrAddressPLFG3.base + 5*beatBytes, 0) // startingPoint
-  step(1)
-  memWriteWord(csrAddressPLFG3.base + segmentNumsArrayOffset, 1) // segmentNums
-  step(1)
-  memWriteWord(csrAddressPLFG3.base + repeatedChirpNumsArrayOffset, 1)
-  step(1)
-  memWriteWord(csrAddressPLFG3.base + chirpOrdinalNumsArrayOffset, 0)
-  step(1)
+  
+  memWriteWord(ramAddressSets(0).base, 0x24000000)
+  memWriteWord(csrAddressSetsPLFG(0).base + 2*beatBytes, 1) // frameNum
+  memWriteWord(csrAddressSetsPLFG(0).base + 4*beatBytes, 1) // differentChirpsNum
+  memWriteWord(csrAddressSetsPLFG(0).base + 5*beatBytes, 16) // startingPoint
+  memWriteWord(csrAddressSetsPLFG(0).base + segmentNumsArrayOffset, 1) // segmentNums
+  memWriteWord(csrAddressSetsPLFG(0).base + repeatedChirpNumsArrayOffset, 1)
+  memWriteWord(csrAddressSetsPLFG(0).base + chirpOrdinalNumsArrayOffset, 0)
+  
+  memWriteWord(ramAddressSets(1).base, 0x24000000)
+  memWriteWord(csrAddressSetsPLFG(1).base + 2*beatBytes, 1) // frameNum
+  memWriteWord(csrAddressSetsPLFG(1).base + 4*beatBytes, 1) // differentChirpsNum
+  memWriteWord(csrAddressSetsPLFG(1).base + 5*beatBytes, 8) // startingPoint
+  memWriteWord(csrAddressSetsPLFG(1).base + segmentNumsArrayOffset, 1) // segmentNums
+  memWriteWord(csrAddressSetsPLFG(1).base + repeatedChirpNumsArrayOffset, 1)
+  memWriteWord(csrAddressSetsPLFG(1).base + chirpOrdinalNumsArrayOffset, 0)
+  
+  memWriteWord(ramAddressSets(2).base, 0x14000001) //0x24000000
+  memWriteWord(csrAddressSetsPLFG(2).base + 2*beatBytes, 1) // frameNum
+  memWriteWord(csrAddressSetsPLFG(2).base + 4*beatBytes, 1) // differentChirpsNum
+  memWriteWord(csrAddressSetsPLFG(2).base + 5*beatBytes, 0) // startingPoint // 16
+  memWriteWord(csrAddressSetsPLFG(2).base + segmentNumsArrayOffset, 1) // segmentNums
+  memWriteWord(csrAddressSetsPLFG(2).base + repeatedChirpNumsArrayOffset, 1)
+  memWriteWord(csrAddressSetsPLFG(2).base + chirpOrdinalNumsArrayOffset, 0)
   
   memWriteWord(csrAddressFFT.base, 1024)
-  step(1)
   memWriteWord(csrAddressFFT.base + beatBytes, 1)
-  step(1)
+
+  memWriteWord(csrAddressSetsNCO(0).base, 1)
+  memWriteWord(csrAddressSetsNCO(0).base + beatBytes, 0x1000)
+  memWriteWord(csrAddressSetsNCO(1).base, 1)
+  memWriteWord(csrAddressSetsNCO(1).base + beatBytes, 0x0800)
+  memWriteWord(csrAddressSetsNCO(2).base, 1)
+  memWriteWord(csrAddressSetsNCO(2).base + beatBytes, 0x0400)
   
-  memWriteWord(csrAddress.base, 0x0400)
-  step(1)
-  memWriteWord(csrAddress.base + beatBytes, 0x0800)
-  step(1)
-  memWriteWord(csrAddress.base + 2 * beatBytes, 0x1000)
-  step(1)
+  memWriteWord(csrAddressSetsPLFG(0).base + beatBytes, 0) // reset_bit
+  memWriteWord(csrAddressSetsPLFG(1).base + beatBytes, 0) // reset_bit
+  memWriteWord(csrAddressSetsPLFG(2).base + beatBytes, 0) // reset_bit
+  memWriteWord(csrAddressSetsPLFG(0).base, 1) // enable
+  memWriteWord(csrAddressSetsPLFG(1).base, 1) // enable
+  memWriteWord(csrAddressSetsPLFG(2).base, 1) // enable
   
-  memWriteWord(csrAddressPLFG1.base + beatBytes, 0) // reset_bit
-  step(1)
-  memWriteWord(csrAddressPLFG2.base + beatBytes, 0) // reset_bit
-  step(1)
-  memWriteWord(csrAddressPLFG3.base + beatBytes, 0) // reset_bit
-  step(1)
-  memWriteWord(csrAddressPLFG1.base, 1) // enable
-  step(1)
-  memWriteWord(csrAddressPLFG2.base, 1) // enable
-  step(1)
-  memWriteWord(csrAddressPLFG3.base, 1) // enable
-  step(1)
   poke(dut.outStream.ready, 1)
   step(1)
   //step(4500)
@@ -145,7 +115,6 @@ class AWGFFTChainTester(
   p1.setXAxisIntegerTickUnits()
   p1 += plot(xaxis1, absVals.toArray, name = "FFT Absolute value")
   p1.ylim(absVals.min, absVals.max)
-  //p1.ylim(returnVal1.min, returnVal1.max)
   p1.xlabel = "Frequency"
   p1.ylabel = "FFT values"
   f1.saveas(s"test_run_dir/awg_fft_chain.pdf")
@@ -155,10 +124,12 @@ class AWGFFTChainTester(
 class AWGFFTChainSpec extends FlatSpec with Matchers {
   implicit val p: Parameters = Parameters.empty
   val beatBytes = 4
+  val numOfAWGs = 3
+  val queueSize = 64
 
-  val paramsNCO1 = FixedNCOParams( // pinc 8
+  val paramsNCO = FixedNCOParams( // pinc 16
     tableSize = 256,
-    tableWidth = 14,
+    tableWidth = 16,
     phaseWidth = 10,
     rasterizedMode = false,
     nInterpolationTerms = 0,
@@ -167,25 +138,14 @@ class AWGFFTChainSpec extends FlatSpec with Matchers {
     phaseAccEnable = true,
     roundingMode = RoundHalfUp,
     pincType = Streaming,
-    poffType = Fixed
+    poffType = Fixed,
+    useMultiplier = true,
+    numMulPipes = 1
   )
-  val paramsNCO2 = FixedNCOParams( // pinc 4
-    tableSize = 256,
-    tableWidth = 14,
-    phaseWidth = 10,
-    rasterizedMode = false,
-    nInterpolationTerms = 0,
-    ditherEnable = false,
-    syncROMEnable = false,
-    phaseAccEnable = true,
-    roundingMode = RoundHalfUp,
-    pincType = Streaming,
-    poffType = Fixed
-  )
-  val paramsNCO3 = FixedNCOParams( // pinc 1
-    tableSize = 256,
-    tableWidth = 14,
-    phaseWidth = 10,
+  val paramsNCO2 = FixedNCOParams( // pinc 16
+    tableSize = 64,
+    tableWidth = 16,
+    phaseWidth = 8,
     rasterizedMode = false,
     nInterpolationTerms = 0,
     ditherEnable = false,
@@ -193,14 +153,16 @@ class AWGFFTChainSpec extends FlatSpec with Matchers {
     phaseAccEnable = false,
     roundingMode = RoundHalfUp,
     pincType = Streaming,
-    poffType = Fixed
+    poffType = Fixed,
+    useMultiplier = true,
+    numMulPipes = 2
   )
   val paramsPLFG = FixedPLFGParams(
-    maxNumOfSegments = 2,
-    maxNumOfDifferentChirps = 2,
-    maxNumOfRepeatedChirps = 2,
-    maxChirpOrdinalNum = 2,
-    maxNumOfFrames = 2,
+    maxNumOfSegments = 4,
+    maxNumOfDifferentChirps = 8,
+    maxNumOfRepeatedChirps = 8,
+    maxChirpOrdinalNum = 4,
+    maxNumOfFrames = 4,
     maxNumOfSamplesWidth = 12,
     outputWidthInt = 16,
     outputWidthFrac = 0
@@ -218,12 +180,19 @@ class AWGFFTChainSpec extends FlatSpec with Matchers {
     keepMSBorLSB = Array.fill(log2Up(1024))(true),
     sdfRadix = "2^2"
   )
+  
+  val parametersForPLFGs = Seq(paramsPLFG, paramsPLFG, paramsPLFG)
+  val parametersForNCOs = Seq(paramsNCO, paramsNCO, paramsNCO2)
+  val csrAddressSetsForPLFGs = Seq(AddressSet(0x001000, 0xFF), AddressSet(0x001100, 0xFF), AddressSet(0x001200, 0xFF))
+  val csrAddressSetsForNCOs = Seq(AddressSet(0x001300, 0xFF), AddressSet(0x001400, 0xFF), AddressSet(0x001500, 0xFF))
+  val ramAddressSets = Seq(AddressSet(0x000000, 0x03FF), AddressSet(0x000400, 0x03FF), AddressSet(0x000800, 0x03FF))
+  val csrAddressFFT = AddressSet(0x001600, 0xFF)
 
   it should "Test AWG FFT Chain" in {
-    val lazyDut = LazyModule(new AWGFFTChain(paramsPLFG, paramsPLFG, paramsPLFG, paramsNCO1, paramsNCO2, paramsNCO3, paramsFFT, AddressSet(0x001000, 0xFF), AddressSet(0x000000, 0x03FF), AddressSet(0x001100, 0xFF), AddressSet(0x000400, 0x03FF), AddressSet(0x001200, 0xFF), AddressSet(0x000800, 0x03FF), AddressSet(0x001300, 0xFF), AddressSet(0x001400, 0xFF),  AddressSet(0x001500, 0xFF), beatBytes) {
+    val lazyDut = LazyModule(new AWGFFTChain(parametersForPLFGs, parametersForNCOs, paramsFFT, csrAddressSetsForPLFGs, csrAddressSetsForNCOs, ramAddressSets, csrAddressFFT, numOfAWGs, queueSize, beatBytes) {
     })
     chisel3.iotesters.Driver.execute(Array("-tiwv", "-tbn", "verilator", "-tivsuv"), () => lazyDut.module) {
-      c => new AWGFFTChainTester(lazyDut, AddressSet(0x001000, 0xFF), AddressSet(0x000000, 0x03FF), AddressSet(0x001100, 0xFF), AddressSet(0x000400, 0x03FF), AddressSet(0x001200, 0xFF), AddressSet(0x000800, 0x03FF), AddressSet(0x001300, 0xFF), AddressSet(0x001400, 0xFF),  AddressSet(0x001500, 0xFF), beatBytes)
+      c => new AWGFFTChainTester(lazyDut, csrAddressSetsForPLFGs, csrAddressSetsForNCOs, ramAddressSets, csrAddressFFT, beatBytes)
     } should be (true)
   }
 }

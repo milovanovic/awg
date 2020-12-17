@@ -22,26 +22,20 @@ import nco._
 
 class AWGFFTChain[T <: Data : Real : BinaryRepresentation]
 (
-  paramsPLFG1: PLFGParams[T],
-  paramsPLFG2: PLFGParams[T],
-  paramsPLFG3: PLFGParams[T],
-  paramsNCO1: NCOParams[T],
-  paramsNCO2: NCOParams[T],
-  paramsNCO3: NCOParams[T],
+  paramsPLFG: Seq[PLFGParams[T]],
+  paramsNCO: Seq[NCOParams[T]],
   paramsFFT: FFTParams[T],
-  csrAddressPLFG1: AddressSet,
-  ramAddress1: AddressSet,
-  csrAddressPLFG2: AddressSet,
-  ramAddress2: AddressSet,
-  csrAddressPLFG3: AddressSet,
-  ramAddress3: AddressSet,
-  csrAddressNCO: AddressSet,
-  csrAddress: AddressSet,
+  csrAddressSetsPLFG: Seq[AddressSet],
+  csrAddressSetsNCO: Seq[AddressSet],
+  ramAddressSets: Seq[AddressSet],
+  
   csrAddressFFT: AddressSet,
+  numOfAWGs: Int,
+  queueSize: Int,
   beatBytes: Int
 ) extends LazyModule()(Parameters.empty) {
 
-  val awgModule = LazyModule(new AWG(paramsPLFG1, paramsPLFG2, paramsPLFG3, paramsNCO1, paramsNCO2, paramsNCO3, csrAddressPLFG1, ramAddress1, csrAddressPLFG2, ramAddress2, csrAddressPLFG3, ramAddress3, csrAddressNCO, csrAddress, beatBytes) {
+  val awgModule = LazyModule(new AWG(paramsPLFG, paramsNCO, csrAddressSetsPLFG, csrAddressSetsNCO, ramAddressSets, numOfAWGs, queueSize, beatBytes) {
   })
   val fftModule = LazyModule(new AXI4FFTBlock(paramsFFT, csrAddressFFT, beatBytes))
 
@@ -73,10 +67,12 @@ class AWGFFTChain[T <: Data : Real : BinaryRepresentation]
 
 object AWGFFTChainApp extends App {
   val beatBytes = 4
+  val numOfAWGs = 3
+  val queueSize = 1024
 
-  val paramsNCO1 = FixedNCOParams( // pinc 16
+  val paramsNCO = FixedNCOParams( // pinc 16
     tableSize = 256,
-    tableWidth = 14,
+    tableWidth = 16,
     phaseWidth = 10,
     rasterizedMode = false,
     nInterpolationTerms = 0,
@@ -85,25 +81,14 @@ object AWGFFTChainApp extends App {
     phaseAccEnable = true,
     roundingMode = RoundHalfUp,
     pincType = Streaming,
-    poffType = Fixed
+    poffType = Fixed,
+    useMultiplier = true,
+    numMulPipes = 1
   )
-  val paramsNCO2 = FixedNCOParams( // pinc 8
-    tableSize = 256,
-    tableWidth = 14,
-    phaseWidth = 10,
-    rasterizedMode = false,
-    nInterpolationTerms = 0,
-    ditherEnable = false,
-    syncROMEnable = false,
-    phaseAccEnable = true,
-    roundingMode = RoundHalfUp,
-    pincType = Streaming,
-    poffType = Fixed
-  )
-  val paramsNCO3 = FixedNCOParams( // pinc 1
-    tableSize = 256,
-    tableWidth = 14,
-    phaseWidth = 10,
+  val paramsNCO2 = FixedNCOParams( // pinc 16
+    tableSize = 64,
+    tableWidth = 16,
+    phaseWidth = 8,
     rasterizedMode = false,
     nInterpolationTerms = 0,
     ditherEnable = false,
@@ -111,7 +96,9 @@ object AWGFFTChainApp extends App {
     phaseAccEnable = false,
     roundingMode = RoundHalfUp,
     pincType = Streaming,
-    poffType = Fixed
+    poffType = Fixed,
+    useMultiplier = true,
+    numMulPipes = 2
   )
   val paramsPLFG = FixedPLFGParams(
     maxNumOfSegments = 4,
@@ -136,8 +123,15 @@ object AWGFFTChainApp extends App {
     keepMSBorLSB = Array.fill(log2Up(1024))(true),
     sdfRadix = "2^2"
   )
+  
+  val parametersForPLFGs = Seq(paramsPLFG, paramsPLFG, paramsPLFG)
+  val parametersForNCOs = Seq(paramsNCO, paramsNCO, paramsNCO2)
+  val csrAddressSetsForPLFGs = Seq(AddressSet(0x001000, 0xFF), AddressSet(0x001100, 0xFF), AddressSet(0x001200, 0xFF))
+  val csrAddressSetsForNCOs = Seq(AddressSet(0x001300, 0xFF), AddressSet(0x001400, 0xFF), AddressSet(0x001500, 0xFF))
+  val ramAddressSets = Seq(AddressSet(0x000000, 0x03FF), AddressSet(0x000400, 0x03FF), AddressSet(0x000800, 0x03FF))
+  val csrAddressFFT = AddressSet(0x001600, 0xFF)
 
-  val chainModule = LazyModule(new AWGFFTChain(paramsPLFG, paramsPLFG, paramsPLFG, paramsNCO1, paramsNCO2, paramsNCO3, paramsFFT, AddressSet(0x001000, 0xFF), AddressSet(0x000000, 0x03FF), AddressSet(0x001100, 0xFF), AddressSet(0x000400, 0x03FF), AddressSet(0x001200, 0xFF), AddressSet(0x000800, 0x03FF), AddressSet(0x001300, 0xFF), AddressSet(0x001400, 0xFF), AddressSet(0x001500, 0xFF), beatBytes) {
+  val chainModule = LazyModule(new AWGFFTChain(parametersForPLFGs, parametersForNCOs, paramsFFT, csrAddressSetsForPLFGs, csrAddressSetsForNCOs, ramAddressSets, csrAddressFFT, numOfAWGs, queueSize, beatBytes) {
   })
   chisel3.Driver.execute(Array("--target-dir", "verilog", "--top-name", "AWGFFTChainApp"), ()=> chainModule.module) // generate verilog code
 }
