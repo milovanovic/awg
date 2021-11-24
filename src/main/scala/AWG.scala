@@ -73,7 +73,7 @@ class AWG[T <: Data : Real : BinaryRepresentation]
     
     for (i <- 0 to (numOfAWGs-1)) {
       queueCounters(i) := queueCounters(i) +& slaveNodes(i).in(0)._1.fire() -& ioout.fire()
-      slaveNodes(i).in(0)._1.ready := (queueCounters(i) < queueSize.U)
+      slaveNodes(i).in(0)._1.ready := queues(i).io.enq.ready
       queues(i).io.enq.valid := slaveNodes(i).in(0)._1.fire()
       queues(i).io.enq.bits := slaveNodes(i).in(0)._1.bits.data
       queues(i).io.deq.ready := outputValids.foldLeft(ioout.ready)(_ && _)
